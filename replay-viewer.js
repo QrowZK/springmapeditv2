@@ -47,6 +47,10 @@ let filters = {
 let sidebarWidth = 320;
 let isResizingSidebar = false;
 
+// Unit icon image cache: internalName -> Image|null
+const unitIconCache = {};
+const unitIconLoading = new Set();
+
 // ── Initialization ────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
 
@@ -392,13 +396,64 @@ function drawCircleIcon(sx, sy, r, color) {
     ctx.stroke();
 }
 
-function drawBuildingIcon(sx, sy, size, color) {
+// Set of internal names that have valid icon files on GitHub
+// (only base units, not dynamic comms or PW structures)
+const ICON_ELIGIBLE_PREFIXES = [
+    'amph','bomber','cloak','drone','energy','factory','grebe','gunship',
+    'hover','jump','mahlazer','plane','plate','shield','ship','slicer',
+    'spider','static','strider','sub','tank','tele_','terra','turret',
+    'veh','wolverine','zenith','nebula','roost','raveparty'
+];
+
+function isIconEligible(internalName) {
+    if (!internalName) return false;
+    return ICON_ELIGIBLE_PREFIXES.some(p => internalName.startsWith(p));
+}
+
+function loadUnitIcon(internalName) {
+    if (!internalName || unitIconCache[internalName] !== undefined || unitIconLoading.has(internalName)) return;
+    if (!isIconEligible(internalName)) { unitIconCache[internalName] = null; return; }
+    unitIconLoading.add(internalName);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        unitIconCache[internalName] = img;
+        unitIconLoading.delete(internalName);
+        render();
+    };
+    img.onerror = () => {
+        unitIconCache[internalName] = null;
+        unitIconLoading.delete(internalName);
+    };
+    img.src = `https://raw.githubusercontent.com/ZeroK-RTS/Zero-K/master/unitpics/${internalName}.png`;
+}
+
+function drawBuildingIcon(sx, sy, size, color, internalName) {
     const half = size * 0.5;
+
+    // Try to draw the actual unit icon if loaded
+    const icon = internalName ? unitIconCache[internalName] : undefined;
+    if (icon) {
+        const iSize = size * 2.5;
+        const iHalf = iSize * 0.5;
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(icon, sx - iHalf, sy - iHalf, iSize, iSize);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = hexToRGBA(color, 0.7);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx - iHalf, sy - iHalf, iSize, iSize);
+        return;
+    }
+
+    // Fallback: colored square
     ctx.fillStyle = hexToRGBA(color, 0.6);
     ctx.fillRect(sx - half, sy - half, size, size);
     ctx.strokeStyle = hexToRGBA(color, 0.9);
     ctx.lineWidth = 1;
     ctx.strokeRect(sx - half, sy - half, size, size);
+
+    // Trigger icon load if available
+    if (internalName) loadUnitIcon(internalName);
 }
 
 // ── Draw units mode ───────────────────────────────────────────────────
@@ -411,17 +466,26 @@ function drawUnits() {
             if (b.gameTime > playbackTime) continue;
             const { sx, sy } = m2s(b.x, b.z);
             const color = getPlayerColor(b.playerNum);
-            drawBuildingIcon(sx, sy, 6, color);
+            drawBuildingIcon(sx, sy, 6, color, b.internalName);
         }
     }
 
     // 2) Collect active units and their positions
+    // Units expire after not being referenced in commands for a threshold period.
+    // Commanders persist longer since they're high-value units.
+    const UNIT_EXPIRE_TIME = 120;      // seconds without commands before hiding
+    const COMMANDER_EXPIRE_TIME = 600;  // commanders persist much longer
+    const FADE_START = 30;              // start fading after this many seconds
+
     const activeUnits = [];
     for (const [uid, unit] of replayData.units) {
         if (unit.firstSeen > playbackTime) continue;
+        const age = playbackTime - unit.lastSeen;
+        const expireTime = unit.isCommander ? COMMANDER_EXPIRE_TIME : UNIT_EXPIRE_TIME;
+        if (age > expireTime) continue; // Unit considered dead/expired
         const pos = getUnitPosition(unit, playbackTime);
         if (!pos) continue;
-        activeUnits.push({ uid, unit, pos });
+        activeUnits.push({ uid, unit, pos, age });
     }
 
     // 3) Draw order lines first (behind units)
@@ -430,14 +494,13 @@ function drawUnits() {
     }
 
     // 4) Draw each unit icon
-    for (const { uid, unit, pos } of activeUnits) {
+    for (const { uid, unit, pos, age } of activeUnits) {
         const { sx, sy } = m2s(pos.x, pos.z);
         const color = getPlayerColor(unit.playerNum);
         const size = unit.isCommander ? 10 : (unit.role === 'builder' ? 6 : 5);
 
         // Fade units that haven't been seen recently
-        const age = playbackTime - unit.lastSeen;
-        const alpha = age > 60 ? 0.2 : age > 30 ? 0.5 : 1.0;
+        const alpha = age > 60 ? 0.15 : age > FADE_START ? 0.4 : 1.0;
 
         drawUnitIcon(sx, sy, size, unit.role, color, alpha);
     }
@@ -527,13 +590,16 @@ function drawStartPositions() {
 function drawTrails() {
     if (!replayData) return;
 
-    // Draw unit movement trails
+    // Draw unit movement trails (only for units active within the time window)
     for (const [uid, unit] of replayData.units) {
+        if (unit.firstSeen > playbackTime) continue;
         const events = unit.events.filter(e => e.gameTime <= playbackTime && e.x !== undefined);
         if (events.length < 2) continue;
 
         const color = getPlayerColor(unit.playerNum);
-        ctx.strokeStyle = hexToRGBA(color, 0.25);
+        const age = playbackTime - unit.lastSeen;
+        const trailAlpha = age > 120 ? 0.08 : 0.25;
+        ctx.strokeStyle = hexToRGBA(color, trailAlpha);
         ctx.lineWidth = unit.isCommander ? 2 : 1;
         ctx.beginPath();
 
@@ -557,7 +623,7 @@ function drawTrails() {
             if (b.gameTime > playbackTime) continue;
             const { sx, sy } = m2s(b.x, b.z);
             const color = getPlayerColor(b.playerNum);
-            drawBuildingIcon(sx, sy, 5, color);
+            drawBuildingIcon(sx, sy, 5, color, b.internalName);
         }
     }
 
@@ -618,18 +684,47 @@ function drawHeatmap() {
 // ── Map drawings ──────────────────────────────────────────────────────
 function drawMapDrawings() {
     if (!replayData) return;
+    const MAP_DRAW_LIFETIME = 60; // seconds before drawings fade completely
+    const MAP_DRAW_ERASE_RADIUS = 200; // map units radius for erase commands
+
+    // Collect erase events up to current time
+    const erases = [];
     for (const draw of replayData.mapDrawings) {
         if (draw.gameTime > playbackTime) continue;
+        if (draw.type === 'erase') erases.push(draw);
+    }
+
+    for (const draw of replayData.mapDrawings) {
+        if (draw.gameTime > playbackTime) continue;
+        if (draw.type === 'erase') continue;
+
+        // Check if this drawing has been erased
+        let erased = false;
+        for (const e of erases) {
+            if (e.gameTime <= draw.gameTime) continue; // erase must come after the drawing
+            if (e.playerNum !== draw.playerNum) continue;
+            const ex = draw.type === 'line' ? (draw.x1 + draw.x2) / 2 : draw.x;
+            const ez = draw.type === 'line' ? (draw.z1 + draw.z2) / 2 : draw.z;
+            const dist = Math.sqrt((e.x - ex) ** 2 + (e.z - ez) ** 2);
+            if (dist < MAP_DRAW_ERASE_RADIUS) { erased = true; break; }
+        }
+        if (erased) continue;
+
+        // Fade over time
+        const age = playbackTime - draw.gameTime;
+        if (age > MAP_DRAW_LIFETIME) continue;
+        const fadeFactor = age < MAP_DRAW_LIFETIME * 0.7 ? 1 : 1 - (age - MAP_DRAW_LIFETIME * 0.7) / (MAP_DRAW_LIFETIME * 0.3);
+
         const color = getPlayerColor(draw.playerNum);
         if (draw.type === 'point') {
             const { sx, sy } = m2s(draw.x, draw.z);
             ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2);
-            ctx.fillStyle = hexToRGBA(color, 0.5); ctx.fill();
-            ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+            ctx.fillStyle = hexToRGBA(color, 0.5 * fadeFactor); ctx.fill();
+            ctx.strokeStyle = hexToRGBA(color, fadeFactor); ctx.lineWidth = 1.5; ctx.stroke();
         } else if (draw.type === 'line') {
             const p1 = m2s(draw.x1, draw.z1), p2 = m2s(draw.x2, draw.z2);
             ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy);
-            ctx.strokeStyle = hexToRGBA(color, 0.7); ctx.lineWidth = 2; ctx.stroke();
+            ctx.strokeStyle = hexToRGBA(color, 0.7 * fadeFactor); ctx.lineWidth = 2; ctx.stroke();
         }
     }
 }
@@ -815,15 +910,39 @@ function updateTooltip(e) {
         if (d < thresh && d < nearestDist) { nearest = { uid, unit, pos }; nearestDist = d; }
     }
 
-    if (nearest) {
+    // Also find nearest building
+    let nearestBuilding = null, nearestBuildingDist = Infinity;
+    if (filters.build) {
+        for (const b of replayData.buildings) {
+            if (b.gameTime > playbackTime) continue;
+            const d = Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
+            if (d < thresh && d < nearestBuildingDist) { nearestBuilding = b; nearestBuildingDist = d; }
+        }
+    }
+
+    if (nearest && (!nearestBuilding || nearestDist <= nearestBuildingDist)) {
         const player = replayData.players.find(p => p.index === nearest.unit.playerNum);
         const pname = player ? player.name : `Player ${nearest.unit.playerNum}`;
         const order = getUnitCurrentOrder(nearest.unit, playbackTime);
+        const age = playbackTime - nearest.unit.lastSeen;
+        const status = age > 120 ? ' (expired)' : age > 30 ? ' (stale)' : '';
         tooltip.innerHTML = `
             <strong>${pname}</strong> - Unit #${nearest.uid}<br>
-            Role: ${nearest.unit.role}${nearest.unit.isCommander ? ' (Commander)' : ''}<br>
+            Role: ${nearest.unit.role}${nearest.unit.isCommander ? ' (Commander)' : ''}${status}<br>
             Pos: (${Math.round(nearest.pos.x)}, ${Math.round(nearest.pos.z)})
             ${order ? `<br>Order: ${order.category}` : ''}
+        `;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
+        tooltip.style.top = (e.clientY - rect.top - 12) + 'px';
+    } else if (nearestBuilding) {
+        const player = replayData.players.find(p => p.index === nearestBuilding.playerNum);
+        const pname = player ? player.name : `Player ${nearestBuilding.playerNum}`;
+        const bName = nearestBuilding.unitName || 'Building';
+        tooltip.innerHTML = `
+            <strong>${pname}</strong> - ${bName}<br>
+            Built at ${formatTime(nearestBuilding.gameTime)}<br>
+            Pos: (${Math.round(nearestBuilding.x)}, ${Math.round(nearestBuilding.z)})
         `;
         tooltip.style.display = 'block';
         tooltip.style.left = (e.clientX - rect.left + 12) + 'px';

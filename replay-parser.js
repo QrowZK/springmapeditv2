@@ -130,6 +130,210 @@ const ZK_CMD = {
     AREA_GUARD: 38522,
 };
 
+// Zero-K base unit internal names (272 units from units/ directory, alphabetically sorted)
+// The engine assigns unitDefIDs alphabetically across ALL loaded units (including
+// dynamically generated comms, PW structures, etc.), so the IDs shift per game.
+// We build the full sorted list at parse time using replay setup script data.
+const ZK_BASE_UNITS = [
+    'amphaa','amphassault','amphbomb','amphcon','amphfloater','amphimpulse','amphlaunch',
+    'amphraid','amphriot','amphsupport','amphtele','armcom1','assaultcruiser','asteroid',
+    'athena','benzcom1','bomberassault','bomberdisarm','bomberheavy','bomberheavyold',
+    'bomberprec','bomberriot','bomberstrike','chicken','chicken_blimpy','chicken_digger',
+    'chicken_dodo','chicken_dragon','chicken_drone','chicken_drone_starter','chicken_leaper',
+    'chicken_listener','chicken_pigeon','chicken_rafflesia','chicken_roc','chicken_shield',
+    'chicken_spidermonkey','chicken_sporeshooter','chicken_tiamat','chickena','chickenblobber',
+    'chickenbroodqueen','chickenc','chickend','chickenf','chickenflyerqueen','chickenlandqueen',
+    'chickenr','chickens','chickenspire','chickenwurm','cloakaa','cloakarty','cloakassault',
+    'cloakbomb','cloakcon','cloakheavyraid','cloakjammer','cloakraid','cloakriot','cloakskirm',
+    'cloaksnipe','commrecon1','commstrike1','commsupport1','corcom1','cremcom1','damagesink',
+    'damagesinkrock','dbg_m0r0','dbg_m0r1','dbg_m1r0','dbg_m1r1','dbg_moire','dronecarry',
+    'dronefighter','droneheavyslow','dronelight','dynassault1','dynknight1','dynrecon1',
+    'dynstrike1','dynsupport1','empiricaldpser','empiricaldpsersmall','empmissile',
+    'energyfusion','energygeo','energyheavygeo','energypylon','energysingu','energysolar',
+    'energywind','factoryamph','factorycloak','factorygunship','factoryhover','factoryjump',
+    'factoryplane','factoryshield','factoryship','factoryspider','factorytank','factoryveh',
+    'fakeunit','fakeunit_aatarget','fakeunit_los','grebe','gunshipaa','gunshipassault',
+    'gunshipbomb','gunshipcon','gunshipemp','gunshipheavyskirm','gunshipheavytrans',
+    'gunshipkrow','gunshipraid','gunshipskirm','gunshiptrans','hoveraa','hoverarty',
+    'hoverassault','hovercon','hoverdepthcharge','hoverheavyraid','hoverminer','hoverraid',
+    'hoverriot','hovershotgun','hoverskirm','hoverskirm2','hoversonic','jumpaa','jumparty',
+    'jumpassault','jumpblackhole','jumpbomb','jumpcon','jumpraid','jumpscout','jumpskirm',
+    'jumpsumo','mahlazer','missileslow','napalmmissile','nebula','neebcomm','obj_artefact',
+    'planecon','planefighter','planeheavyfighter','planelightscout','planescout','plateamph',
+    'platecloak','plategunship','platehover','platejump','plateplane','plateshield','plateship',
+    'platespider','platetank','plateveh','pw_generic','pw_hq_attacker','pw_hq_defender',
+    'raveparty','roost','seismic','shieldaa','shieldarty','shieldassault','shieldbomb',
+    'shieldcon','shieldfelon','shieldraid','shieldriot','shieldscout','shieldshield',
+    'shieldskirm','shipaa','shiparty','shipassault','shipcarrier','shipcon','shipheavyarty',
+    'shipriot','shipscout','shipskirm','shiptorpraider','slicer','spideraa','spideranarchid',
+    'spiderantiheavy','spiderassault','spidercon','spidercrabe','spideremp','spiderriot',
+    'spiderscout','spiderskirm','starlight_satellite','staticantinuke','staticarty','staticcon',
+    'staticheavyarty','staticheavyradar','staticjammer','staticmex','staticmissilesilo',
+    'staticnuke','staticradar','staticrearm','staticshield','staticsonar','staticstorage',
+    'statictele','statictempshield','striderantiheavy','striderarty','striderbantha',
+    'striderdante','striderdetriment','striderdozer','striderfunnelweb','striderhub',
+    'striderscorpion','subraider','subscout','subtacmissile','tacnuke','tankaa','tankarty',
+    'tankassault','tankcon','tankheavyarty','tankheavyassault','tankheavyraid','tankraid',
+    'tankriot','tele_beacon','terraunit','tiptest','turretaaclose','turretaafar','turretaaflak',
+    'turretaaheavy','turretaalaser','turretantiheavy','turretemp','turretgauss','turretheavy',
+    'turretheavylaser','turretimpulse','turretlaser','turretmissile','turretriot',
+    'turretsunlance','turrettorp','vehaa','veharty','vehassault','vehcapture','vehcon',
+    'vehheavyarty','vehraid','vehriot','vehscout','vehsupport','wolverine_mine','zenith'
+];
+
+// Known dynamically generated units (cloned comms, PW structures, predefined comms, static comms)
+const ZK_DYNAMIC_UNITS = [
+    // Cloned commander levels (0, 2-5 for each base type)
+    'armcom0','armcom2','armcom3','armcom4','armcom5',
+    'benzcom0','benzcom2','benzcom3','benzcom4','benzcom5',
+    'commrecon0','commrecon2','commrecon3','commrecon4','commrecon5',
+    'commstrike0','commstrike2','commstrike3','commstrike4','commstrike5',
+    'commsupport0','commsupport2','commsupport3','commsupport4','commsupport5',
+    'corcom0','corcom2','corcom3','corcom4','corcom5',
+    'cremcom0','cremcom2','cremcom3','cremcom4','cremcom5',
+    'dynassault0','dynassault2','dynassault3','dynassault4','dynassault5',
+    'dynknight0','dynknight2','dynknight3','dynknight4','dynknight5',
+    'dynrecon0','dynrecon2','dynrecon3','dynrecon4','dynrecon5',
+    'dynstrike0','dynstrike2','dynstrike3','dynstrike4','dynstrike5',
+    'dynsupport0','dynsupport2','dynsupport3','dynsupport4','dynsupport5',
+    // Predefined dynamic comms
+    'dynfancy_guardian_base','dynfancy_recon_base','dynfancy_strike_base',
+    'dynfancy_strike_lobster_base','dynfancy_support_base',
+    'dynhub_assault_base','dynhub_recon_base','dynhub_strike_base','dynhub_support_base',
+    'dyntrainer_assault_base','dyntrainer_knight_base','dyntrainer_recon_base',
+    'dyntrainer_strike_base','dyntrainer_support_base',
+    // PW structures (LOAD_ALL_STRUCTURES = true in pw_unitdefgen.lua)
+    'generic_tech','pw_artefact','pw_bomberfac','pw_dropfac','pw_estorage','pw_estorage2',
+    'pw_garrison','pw_gaspowerstation','pw_grid','pw_guerilla','pw_inhibitor',
+    'pw_interception','pw_metal','pw_mine','pw_mine2','pw_mine3','pw_mstorage2',
+    'pw_relay','pw_storage','pw_techlab','pw_warpgate','pw_warpgatealt','pw_warpjammer',
+    'pw_wormhole','pw_wormhole2',
+    // Static comms (from staticcomms.lua - for AI/missions)
+    'comm_battle_pea','comm_campaign_ada','comm_campaign_biovizier',
+    'comm_campaign_freemachine','comm_campaign_isonade','comm_campaign_legion',
+    'comm_campaign_odin','comm_campaign_praetorian','comm_campaign_promethean',
+    'comm_econ_cai','comm_flamer','comm_guardian','comm_hammer','comm_hunter',
+    'comm_marine','comm_marksman','comm_marksman_cai','comm_mission_tutorial1',
+    'comm_recon','comm_recon_pea','comm_riot','comm_riot_cai','comm_rocketeer',
+    'comm_strike_hmg','comm_strike_lpb','comm_strike_pea','comm_stun_cai',
+    'comm_support_pea','comm_thunder',
+];
+
+// Human-readable names for unit internal names
+const ZK_UNIT_HUMANNAMES = {
+    amphaa:'Angler',amphassault:'Grizzly',amphbomb:'Limpet',amphcon:'Conch',amphfloater:'Buoy',
+    amphimpulse:'Archer',amphlaunch:'Lobster',amphraid:'Duck',amphriot:'Scallop',
+    amphsupport:'Bulkhead',amphtele:'Djinn',cloakaa:'Gremlin',cloakarty:'Sling',
+    cloakassault:'Knight',cloakbomb:'Imp',cloakcon:'Conjurer',cloakheavyraid:'Scythe',
+    cloakjammer:'Iris',cloakraid:'Glaive',cloakriot:'Reaver',cloakskirm:'Ronin',
+    cloaksnipe:'Phantom',energyfusion:'Fusion Reactor',energygeo:'Geothermal',
+    energyheavygeo:'Adv Geothermal',energypylon:'Energy Pylon',energysingu:'Singularity Reactor',
+    energysolar:'Solar Collector',energywind:'Wind/Tidal',factoryamph:'Amphbot Factory',
+    factorycloak:'Cloakbot Factory',factorygunship:'Gunship Plant',factoryhover:'Hovercraft Platform',
+    factoryjump:'Jumpbot Factory',factoryplane:'Airplane Plant',factoryshield:'Shieldbot Factory',
+    factoryship:'Shipyard',factoryspider:'Spider Factory',factorytank:'Tank Foundry',
+    factoryveh:'Rover Assembly',grebe:'Grebe',gunshipaa:'Trident',gunshipassault:'Revenant',
+    gunshipbomb:'Blastwing',gunshipcon:'Wasp',gunshipemp:'Gnat',gunshipheavyskirm:'Nimbus',
+    gunshipheavytrans:'Hercules',gunshipkrow:'Krow',gunshipraid:'Locust',gunshipskirm:'Harpy',
+    gunshiptrans:'Charon',hoveraa:'Flail',hoverarty:'Lance',hoverassault:'Halberd',
+    hovercon:'Quill',hoverdepthcharge:'Claymore',hoverheavyraid:'Bolas',hoverraid:'Dagger',
+    hoverriot:'Mace',hoverskirm:'Scalpel',hoverskirm2:'Trisula',hoversonic:'Morningstar',
+    jumpaa:'Toad',jumparty:'Firewalker',jumpassault:'Jack',jumpbomb:'Skuttle',jumpcon:'Constable',
+    jumpraid:'Pyro',jumpscout:'Puppy',jumpskirm:'Moderator',jumpsumo:'Jugglenaut',
+    mahlazer:'Starlight',planecon:'Crane',planefighter:'Swift',planeheavyfighter:'Raptor',
+    planescout:'Owl',plateamph:'Amphbot Plate',platecloak:'Cloakbot Plate',
+    plategunship:'Gunship Plate',platehover:'Hovercraft Plate',platejump:'Jumpbot Plate',
+    plateplane:'Airplane Plate',plateshield:'Shieldbot Plate',plateship:'Ship Plate',
+    platespider:'Spider Plate',platetank:'Tank Plate',plateveh:'Rover Plate',
+    raveparty:'Disco Rave Party',shieldaa:'Vandal',shieldarty:'Racketeer',shieldassault:'Thug',
+    shieldbomb:'Snitch',shieldcon:'Convict',shieldfelon:'Felon',shieldraid:'Bandit',
+    shieldriot:'Outlaw',shieldscout:'Dirtbag',shieldshield:'Aspis',shieldskirm:'Rogue',
+    shipaa:'Zephyr',shiparty:'Envoy',shipassault:'Siren',shipcarrier:'Reef',shipcon:'Mariner',
+    shipheavyarty:'Shogun',shipriot:'Corsair',shipscout:'Cutter',shipskirm:'Mistral',
+    shiptorpraider:'Hunter',slicer:'Slicer',spideraa:'Tarantula',spideranarchid:'Anarchid',
+    spiderantiheavy:'Widow',spiderassault:'Hermit',spidercon:'Weaver',spidercrabe:'Crab',
+    spideremp:'Venom',spiderriot:'Redback',spiderscout:'Flea',spiderskirm:'Recluse',
+    staticantinuke:'Antinuke',staticarty:'Cerberus',staticcon:'Caretaker',
+    staticheavyarty:'Big Bertha',staticheavyradar:'Adv Radar',staticjammer:'Cornea',
+    staticmex:'Metal Extractor',staticmissilesilo:'Missile Silo',staticnuke:'Trinity',
+    staticradar:'Radar Tower',staticrearm:'Airpad',staticshield:'Aegis',staticsonar:'Sonar Station',
+    staticstorage:'Storage',statictele:'Teleporter',statictempshield:'Pavise',
+    striderantiheavy:'Ultimatum',striderarty:'Merlin',striderbantha:'Paladin',
+    striderdante:'Dante',striderdetriment:'Detriment',striderdozer:'Dozer',
+    striderfunnelweb:'Funnelweb',striderhub:'Strider Hub',striderscorpion:'Scorpion',
+    subraider:'Seawolf',subscout:'Lancelet',subtacmissile:'Scylla',
+    tankaa:'Ettin',tankarty:'Emissary',tankassault:'Minotaur',tankcon:'Welder',
+    tankheavyarty:'Tremor',tankheavyassault:'Cyclops',tankheavyraid:'Blitz',tankraid:'Kodachi',
+    tankriot:'Ogre',terraunit:'Terraform',turretaaclose:'Hacksaw',turretaafar:'Chainsaw',
+    turretaaflak:'Thresher',turretaaheavy:'Artemis',turretaalaser:'Razor',
+    turretantiheavy:'Lucifer',turretemp:'Faraday',turretgauss:'Gauss',turretheavy:'Desolator',
+    turretheavylaser:'Stinger',turretimpulse:'Newton',turretlaser:'Lotus',turretmissile:'Picket',
+    turretriot:'Stardust',turretsunlance:'Sunlance',turrettorp:'Urchin',vehaa:'Crasher',
+    veharty:'Badger',vehassault:'Ravager',vehcapture:'Dominatrix',vehcon:'Mason',
+    vehheavyarty:'Impaler',vehraid:'Scorcher',vehriot:'Ripper',vehscout:'Dart',
+    vehsupport:'Fencer',zenith:'Zenith',
+};
+
+/**
+ * Build the full unitDefID -> name mapping for a specific game by combining
+ * base units, known dynamic units, and per-game commander profiles from the
+ * replay's setup script. IDs are assigned alphabetically by the engine.
+ */
+function buildUnitDefMapping(setupScript) {
+    const allNames = new Set([...ZK_BASE_UNITS, ...ZK_DYNAMIC_UNITS]);
+
+    // Extract per-game commander profile IDs from setup script's commandertypes modoption
+    if (setupScript) {
+        const ctMatch = setupScript.match(/commandertypes=([^;\n]+)/);
+        if (ctMatch) {
+            try {
+                let decoded = ctMatch[1].trim();
+                // It's base64 encoded Lua table - extract profile keys like c45022, c45023
+                if (typeof atob === 'function') {
+                    decoded = atob(decoded);
+                } else {
+                    decoded = Buffer.from(decoded, 'base64').toString();
+                }
+                // Extract comm profile IDs (keys like c12345)
+                const profileIds = decoded.match(/\bc\d+\b/g);
+                if (profileIds) {
+                    for (const pid of profileIds) {
+                        allNames.add(pid + '_base');
+                    }
+                }
+            } catch (e) { /* ignore decode errors */ }
+        }
+    }
+
+    // Sort alphabetically (same as engine) and build ID mapping
+    const sorted = [...allNames].sort();
+    const idToName = {};
+    const idToHumanName = {};
+    for (let i = 0; i < sorted.length; i++) {
+        const name = sorted[i];
+        const id = i + 1; // IDs start at 1
+        idToName[id] = name;
+        idToHumanName[id] = ZK_UNIT_HUMANNAMES[name] || name;
+    }
+    return { idToName, idToHumanName, nameToId: Object.fromEntries(sorted.map((n, i) => [n, i + 1])) };
+}
+
+/**
+ * Get human-readable name for a unitDefID using a mapping
+ */
+function getUnitDefName(unitDefId, mapping) {
+    if (mapping && mapping.idToHumanName[unitDefId]) return mapping.idToHumanName[unitDefId];
+    return `Unit #${unitDefId}`;
+}
+
+/**
+ * Get the internal unit name for icon URL construction
+ */
+function getUnitInternalName(unitDefId, mapping) {
+    if (mapping && mapping.idToName[unitDefId]) return mapping.idToName[unitDefId];
+    return null;
+}
+
 // Map draw sub-actions
 const MAPDRAW = {
     POINT: 0,
@@ -171,8 +375,8 @@ for (const [name, id] of Object.entries(ZK_CMD)) {
     ZK_CMD_NAMES[id] = name;
 }
 
-function getCommandName(cmdId) {
-    if (cmdId < 0) return `Build`;
+function getCommandName(cmdId, mapping) {
+    if (cmdId < 0) return `Build ${getUnitDefName(-cmdId, mapping)}`;
     return CMD_NAMES[cmdId] || ZK_CMD_NAMES[cmdId] || `CMD_${cmdId}`;
 }
 
@@ -230,6 +434,7 @@ class ReplayParser {
             selections: this.selections,
             units: this.units,           // Map<unitId, UnitInfo>
             buildings: this.buildings,     // Array of placed buildings
+            unitDefMapping: this.unitDefMapping, // unitDefID -> name mapping
             maxGameTime: this.maxGameTime,
             mapName: this.gameInfo.mapName || 'Unknown'
         };
@@ -748,6 +953,9 @@ class ReplayParser {
         this.units = new Map();
         this.buildings = [];
 
+        // Build unitDefID -> name mapping for this specific game
+        this.unitDefMapping = buildUnitDefMapping(this.script);
+
         // Identify commander unit IDs from the first SELECT per player
         // (first selected unit at game start is typically the commander)
         const commanderCandidates = {};
@@ -840,12 +1048,15 @@ class ReplayParser {
 
             // Track buildings from build commands
             if (cmd.category === 'build' && cmd.cmdId < 0) {
+                const defId = -cmd.cmdId;
                 this.buildings.push({
                     gameTime: cmd.gameTime,
                     playerNum: cmd.playerNum,
                     x: cmd.x,
                     z: cmd.z,
-                    unitDefId: -cmd.cmdId,
+                    unitDefId: defId,
+                    unitName: getUnitDefName(defId, this.unitDefMapping),
+                    internalName: getUnitInternalName(defId, this.unitDefMapping),
                     facing: cmd.params.length >= 4 ? cmd.params[3] : 0
                 });
             }
@@ -885,11 +1096,15 @@ class ReplayParser {
 
 // Export for use in viewer
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { ReplayParser, CMD, CMD_NAMES, classifyCommand };
+    module.exports = { ReplayParser, CMD, CMD_NAMES, ZK_UNIT_HUMANNAMES, classifyCommand, buildUnitDefMapping, getUnitDefName, getUnitInternalName };
 }
 if (typeof window !== 'undefined') {
     window.ReplayParser = ReplayParser;
     window.classifyCommand = classifyCommand;
     window.CMD = CMD;
     window.CMD_NAMES = CMD_NAMES;
+    window.ZK_UNIT_HUMANNAMES = ZK_UNIT_HUMANNAMES;
+    window.buildUnitDefMapping = buildUnitDefMapping;
+    window.getUnitDefName = getUnitDefName;
+    window.getUnitInternalName = getUnitInternalName;
 }
