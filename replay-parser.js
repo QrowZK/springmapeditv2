@@ -187,8 +187,10 @@ class ReplayParser {
         this.startPositions = [];
         this.mapDrawings = [];
         this.chatMessages = [];
+        this.selections = [];       // {gameTime, playerNum, unitIds[]}
         this.frames = [];
         this.maxGameTime = 0;
+        this._currentSelection = {}; // playerNum -> unitIds[]
     }
 
     /**
@@ -213,6 +215,9 @@ class ReplayParser {
         this._parseScript(data);
         this._parseDemoStream(data, view);
 
+        // Post-process: build unit tracking data
+        this._buildUnitData();
+
         return {
             header: this.header,
             gameInfo: this.gameInfo,
@@ -222,6 +227,9 @@ class ReplayParser {
             startPositions: this.startPositions,
             mapDrawings: this.mapDrawings,
             chatMessages: this.chatMessages,
+            selections: this.selections,
+            units: this.units,           // Map<unitId, UnitInfo>
+            buildings: this.buildings,     // Array of placed buildings
             maxGameTime: this.maxGameTime,
             mapName: this.gameInfo.mapName || 'Unknown'
         };
@@ -400,6 +408,9 @@ class ReplayParser {
             case NETMSG.STARTPOS:
                 this._parseStartPos(view, pos, length, gameTime);
                 break;
+            case NETMSG.SELECT:
+                this._parseSelect(view, pos, length, gameTime);
+                break;
             case NETMSG.COMMAND:
                 this._parseCommand(view, pos, length, gameTime);
                 break;
@@ -439,6 +450,29 @@ class ReplayParser {
     }
 
     /**
+     * NETMSG_SELECT packet layout:
+     * byte 0:    uint8   type (12)
+     * byte 1-2:  uint16  packetSize
+     * byte 3:    uint8   playerNum
+     * byte 4+:   int16[] selectedUnitIDs
+     */
+    _parseSelect(view, pos, length, gameTime) {
+        if (length < 4) return;
+        const msgSize = view.getUint16(pos + 1, true);
+        const playerNum = this.data[pos + 3];
+        const numUnits = (msgSize - 4) / 2;
+        const unitIds = [];
+        for (let i = 0; i < numUnits; i++) {
+            const offset = pos + 4 + i * 2;
+            if (offset + 2 <= pos + length) {
+                unitIds.push(view.getInt16(offset, true));
+            }
+        }
+        this._currentSelection[playerNum] = unitIds;
+        this.selections.push({ gameTime, playerNum, unitIds });
+    }
+
+    /**
      * NETMSG_COMMAND packet layout (from BaseNetProtocol.cpp SendCommand):
      * byte 0:    uint8   type (11)
      * byte 1-2:  uint16  packetSize
@@ -465,6 +499,7 @@ class ReplayParser {
         }
 
         if (params.length >= 3 && isFinite(params[0]) && isFinite(params[2])) {
+            const selectedUnits = this._currentSelection[playerNum] || [];
             this.commands.push({
                 gameTime,
                 playerNum,
@@ -476,7 +511,8 @@ class ReplayParser {
                 y: params[1],
                 z: params[2],
                 params,
-                isAI: false
+                isAI: false,
+                selectedUnitIds: selectedUnits.length > 0 ? [...selectedUnits] : undefined
             });
         }
     }
@@ -700,6 +736,143 @@ class ReplayParser {
         const message = new TextDecoder().decode(msgBytes).replace(/\0/g, '');
 
         this.chatMessages.push({ gameTime, fromId, destId, message });
+    }
+
+    /**
+     * Post-process: build unit tracking data from commands, selections, and start positions.
+     * Creates:
+     *   this.units - Map of unitId -> { playerNum, firstSeen, lastSeen, isCommander, events[] }
+     *   this.buildings - Array of { gameTime, playerNum, x, z, unitDefId }
+     */
+    _buildUnitData() {
+        this.units = new Map();
+        this.buildings = [];
+
+        // Identify commander unit IDs from the first SELECT per player
+        // (first selected unit at game start is typically the commander)
+        const commanderCandidates = {};
+        for (const sel of this.selections) {
+            if (sel.unitIds.length === 1 && !commanderCandidates[sel.playerNum]) {
+                commanderCandidates[sel.playerNum] = sel.unitIds[0];
+            }
+        }
+
+        // Also check first AI commands per player - the first unit to receive
+        // a build order is likely the commander
+        const firstAIBuildUnit = {};
+        for (const cmd of this.commands) {
+            if (cmd.isAI && cmd.unitId !== undefined && cmd.category === 'build' && !firstAIBuildUnit[cmd.playerNum]) {
+                firstAIBuildUnit[cmd.playerNum] = cmd.unitId;
+            }
+        }
+
+        // Merge commander candidates
+        for (const [pn, uid] of Object.entries(firstAIBuildUnit)) {
+            if (!commanderCandidates[pn]) commanderCandidates[pn] = uid;
+        }
+
+        // Get final start positions per player
+        const playerStartPos = {};
+        for (const sp of this.startPositions) {
+            if (sp.x !== 0 || sp.z !== 0) {
+                playerStartPos[sp.playerNum] = { x: sp.x, y: sp.y, z: sp.z };
+            }
+        }
+
+        // Helper to get or create a unit entry
+        const getUnit = (unitId, playerNum, gameTime) => {
+            if (!this.units.has(unitId)) {
+                const isCommander = Object.values(commanderCandidates).includes(unitId);
+                this.units.set(unitId, {
+                    unitId,
+                    playerNum,
+                    firstSeen: gameTime,
+                    lastSeen: gameTime,
+                    isCommander,
+                    role: isCommander ? 'commander' : 'unknown',
+                    events: []
+                });
+            }
+            const unit = this.units.get(unitId);
+            unit.lastSeen = Math.max(unit.lastSeen, gameTime);
+            return unit;
+        };
+
+        // Process all commands to build unit data
+        for (const cmd of this.commands) {
+            // AI commands have direct unit IDs
+            if (cmd.unitId !== undefined) {
+                const unit = getUnit(cmd.unitId, cmd.playerNum, cmd.gameTime);
+                unit.events.push({
+                    gameTime: cmd.gameTime,
+                    cmdId: cmd.cmdId,
+                    category: cmd.category,
+                    x: cmd.x, z: cmd.z
+                });
+
+                // Classify unit role
+                if (cmd.category === 'build' && cmd.cmdId < 0 && unit.role !== 'commander') {
+                    unit.role = 'builder';
+                } else if ((cmd.category === 'move' || cmd.category === 'patrol') && unit.role === 'unknown') {
+                    unit.role = 'mobile';
+                } else if (cmd.category === 'attack' && unit.role !== 'commander') {
+                    unit.role = 'combat';
+                }
+            }
+
+            // Player commands apply to selected units
+            if (!cmd.isAI && cmd.selectedUnitIds) {
+                for (const uid of cmd.selectedUnitIds) {
+                    const unit = getUnit(uid, cmd.playerNum, cmd.gameTime);
+                    unit.events.push({
+                        gameTime: cmd.gameTime,
+                        cmdId: cmd.cmdId,
+                        category: cmd.category,
+                        x: cmd.x, z: cmd.z
+                    });
+                    if (cmd.category === 'attack' && unit.role !== 'commander') {
+                        unit.role = 'combat';
+                    } else if ((cmd.category === 'move' || cmd.category === 'patrol') && unit.role === 'unknown') {
+                        unit.role = 'mobile';
+                    }
+                }
+            }
+
+            // Track buildings from build commands
+            if (cmd.category === 'build' && cmd.cmdId < 0) {
+                this.buildings.push({
+                    gameTime: cmd.gameTime,
+                    playerNum: cmd.playerNum,
+                    x: cmd.x,
+                    z: cmd.z,
+                    unitDefId: -cmd.cmdId,
+                    facing: cmd.params.length >= 4 ? cmd.params[3] : 0
+                });
+            }
+        }
+
+        // Set commander initial positions from start positions
+        for (const [pn, uid] of Object.entries(commanderCandidates)) {
+            const unit = this.units.get(uid);
+            if (unit && playerStartPos[pn]) {
+                const sp = playerStartPos[pn];
+                unit.events.unshift({
+                    gameTime: 0,
+                    cmdId: -1,
+                    category: 'spawn',
+                    x: sp.x, z: sp.z
+                });
+            }
+        }
+
+        // Also track units from selections that had no commands
+        for (const sel of this.selections) {
+            for (const uid of sel.unitIds) {
+                if (!this.units.has(uid)) {
+                    getUnit(uid, sel.playerNum, sel.gameTime);
+                }
+            }
+        }
     }
 
     _readString(data, offset, maxLen) {

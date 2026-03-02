@@ -235,6 +235,25 @@
             font-size: 11px;
             padding: 3px 8px;
         }
+        #resizeHandle {
+            width: 6px;
+            cursor: col-resize;
+            background: #0f3460;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        #resizeHandle:hover, #resizeHandle:active {
+            background: #e94560;
+        }
+        .legend-icon {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -273,27 +292,33 @@
                     <label><input type="checkbox" data-filter="other" checked> Other Commands</label>
                     <label><input type="checkbox" data-filter="startpos" checked> Start Positions</label>
                     <label><input type="checkbox" data-filter="mapdraw" checked> Map Drawings</label>
+                    <label><input type="checkbox" data-filter="orderlines" checked> Order Lines</label>
                 </div>
             </div>
 
             <div class="panel" id="viewPanel" style="display:none">
                 <h3>View Mode</h3>
                 <div class="heatmap-toggle">
-                    <button id="btnTrails" class="active" onclick="setViewMode('trails')">Trails</button>
+                    <button id="btnDots" class="active" onclick="setViewMode('units')">Units</button>
+                    <button id="btnTrails" onclick="setViewMode('trails')">Trails</button>
                     <button id="btnHeatmap" onclick="setViewMode('heatmap')">Heatmap</button>
-                    <button id="btnDots" onclick="setViewMode('dots')">Dots</button>
                 </div>
             </div>
 
             <div class="panel" id="legendPanel" style="display:none">
                 <h3>Legend</h3>
                 <div class="legend" id="legend">
+                    <div style="font-weight:600;margin-bottom:4px;color:#aaa">Unit Icons</div>
+                    <div class="legend-item"><div class="legend-icon" style="color:#fff">&#9733;</div> Commander</div>
+                    <div class="legend-item"><div class="legend-icon" style="color:#fff">&#9650;</div> Combat</div>
+                    <div class="legend-item"><div class="legend-icon" style="color:#fff">&#9632;</div> Builder</div>
+                    <div class="legend-item"><div class="legend-icon" style="color:#fff">&#9679;</div> Mobile / Other</div>
+                    <div style="font-weight:600;margin:6px 0 4px;color:#aaa">Order Lines</div>
                     <div class="legend-item"><div class="legend-color" style="background:#4ecdc4"></div> Move</div>
                     <div class="legend-item"><div class="legend-color" style="background:#ff6b6b"></div> Attack</div>
                     <div class="legend-item"><div class="legend-color" style="background:#ffe66d"></div> Build</div>
                     <div class="legend-item"><div class="legend-color" style="background:#a8e6cf"></div> Patrol/Fight</div>
                     <div class="legend-item"><div class="legend-color" style="background:#888"></div> Other</div>
-                    <div class="legend-item"><div class="legend-color" style="background:white; height:10px; width:10px; border-radius:50%"></div> Start Position</div>
                 </div>
             </div>
 
@@ -303,6 +328,7 @@
             </div>
         </div>
 
+        <div id="resizeHandle"></div>
         <div class="canvas-area">
             <canvas id="replayCanvas"></canvas>
             <div id="emptyState" class="empty-state">
